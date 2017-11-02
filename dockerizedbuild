@@ -1,0 +1,133 @@
+#!/bin/sh
+
+set -e
+
+usage()
+{
+    echo "Usage: ${0} <options>" >&2
+    echo "Where:" >&2
+    echo "  -h, --help               Print this help page" >&2
+    echo "  -d, --debug              Turn on debug output" >&2
+    echo "  -n, --build-number <#>   Specify build number for this build" >&2
+    echo "  -t, --test               Run smoke test after building" >&2
+    echo "" >&2
+    echo "The build number from the command line, if present, is used. The" >&2
+    echo "script also looks at the \`BUILD_NUMBER\` and " >&2
+    echo "\`bamboo_buildNumber\` environment variables. Otherwise, the" >&2
+    echo "build number is set to \`1\`." >&2
+    exit 1
+}
+
+smoke_test=0
+build_number=
+debug=0
+while [ -n "${1}" ]
+do
+    case "${1}" in
+        -t|--test)
+            smoke_test=1
+            shift
+            ;;
+        -d|--debug)
+            debug=1
+            shift
+            ;;
+        -n|--build-number)
+            shift
+            build_number=${1}
+            shift
+            ;;
+        -h|--help)
+            usage
+            shift
+            ;;
+        *)
+            usage
+            shift
+            ;;
+    esac
+done
+
+myUID=$(id -u)
+myGID=$(id -g)
+
+name=ceph
+branch=$(git branch | awk '/^[*]/{print $2}')
+package_version=1
+
+if [ ${debug} -ne 0 ]
+then
+    set -x
+fi
+
+if [ -z "${build_number}" ]
+then
+    if [ -n "${bamboo_buildNumber}" ]
+    then
+        build_number=${bamboo_buildNumber}
+    elif [ -n "${BUILD_NUMBER}" ]
+    then
+        build_number=${BUILD_NUMBER}
+    else
+        build_number=1
+    fi
+fi
+
+package_iteration=${package_version}.${build_number}.stc
+
+# Parameterize the image name by who's building the image,
+# thus matching the docker image building user with the
+# docker image running user.
+
+base_image_sum="$(sha256sum docker_files/Dockerfile.in | awk '{print $1}' | cut -c 55-64)"
+install_deps_sum="$(sha256sum ./install-deps.sh | awk '{print $1}' | cut -c 55-64)"
+commit_commands_sum="$(sha256sum docker_files/install-deps-commands | awk '{print $1}' | cut -c 55-64)"
+builder_image_name="stc_build/${name}_builder_${myUID}_${base_image_sum}_${install_deps_sum}_${commit_commands_sum}"
+rev=$(git rev-parse HEAD)
+date=$(date '+%s')
+
+
+if ! docker images | grep -q -E "^${builder_image_name}[^l]*latest"
+then
+    echo "Docker image ${builder_image_name}:latest does not exist. building..."
+
+
+    compile_image="${name}_compile_image_${myUID}_${base_image_sum}"
+    if ! docker images | tail -n+2 | grep -q "^${compile_image} *latest"
+    then
+        sed -e "s/@UID@/${myUID}/g" \
+            -e "s/@GID@/${myGID}/g" \
+        docker_files/Dockerfile.in > docker_files/Dockerfile
+        docker build \
+               "--tag=${compile_image}:latest" \
+               "${PWD}/docker_files"
+    fi
+    compile_container="compiler_container_${rev}_${date}"
+    docker run -v "${PWD}:/build_root" \
+           -i -u build \
+           -w "/build_root" \
+           --name="${compile_container}" "${compile_image}:latest" \
+           "/bin/bash" < docker_files/install-deps-commands
+    compile_container_id=$(docker ps -a -q -f "name=${compile_container}")
+    docker commit "${compile_container_id}" "${builder_image_name}:latest"
+    docker rm "${compile_container}"
+fi
+
+container=${name}_builder_${rev}_${date}
+
+# This allows you to control-c out of the build
+docker run -v "${PWD}:/build_root" \
+       -i -u build -w "/build_root" \
+       --rm=true \
+       --name="${container}" "${builder_image_name}:latest" \
+       "/bin/bash" << COMMANDS
+if [ "${debug}" -eq 1 ]
+then
+    env | sort
+    set -x
+    export LDFLAGS="-Wl,-V"
+fi
+./make-debs.sh
+rm -rf release
+cp -af /tmp/release release
+COMMANDS

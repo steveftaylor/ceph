@@ -68,7 +68,7 @@ fi
 # b) do not sign the packages
 # c) use half of the available processors
 #
-: ${NPROC:=$(($(nproc) / 2))}
+: ${NPROC:=$(($(nproc) * 2))}
 if test $NPROC -gt 1 ; then
     j=-j${NPROC}
 fi

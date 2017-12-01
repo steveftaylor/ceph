@@ -7,6 +7,7 @@ export DEB_HOST_ARCH      ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 
 extraopts += -DUSE_CRYPTOPP=OFF -DWITH_OCF=ON -DWITH_LTTNG=ON -DWITH_PYTHON3=ON -DWITH_EMBEDDED=OFF
 extraopts += -DWITH_CEPHFS_JAVA=ON
+extraopts += -DALLOCATOR=jemalloc
 # assumes that ceph is exmpt from multiarch support, so we override the libdir.
 extraopts += -DCMAKE_INSTALL_LIBDIR=/usr/lib
 extraopts += -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib
@@ -50,6 +51,7 @@ override_dh_auto_install:
 	install -D -m 644 udev/95-ceph-osd.rules $(DESTDIR)/lib/udev/rules.d/95-ceph-osd.rules
 	install -D -m 644 udev/60-ceph-by-parttypeuuid.rules $(DESTDIR)/lib/udev/rules.d/60-ceph-by-parttypeuuid.rules
 	install -D -m 644 src/etc-rbdmap $(DESTDIR)/etc/ceph/rbdmap
+	install -D -m 644 src/90-ceph-osd.conf $(DESTDIR)/etc/sysctl.d/30-ceph-osd.conf
 
 # doc/changelog is a directory, which confuses dh_installchangelogs
 override_dh_installchangelogs:

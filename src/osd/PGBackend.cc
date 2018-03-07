@@ -766,9 +766,9 @@ map<pg_shard_t, ScrubMap *>::const_iterator
   inconsistent_obj_wrapper &object_error)
 {
   eversion_t auth_version;
-  bufferlist first_bl;
+  bufferlist first_oi_bl, first_ss_bl;
 
-  // Create list of shards with primary last so it will be auth copy all
+  // Create list of shards with primary first so it will be auth copy all
   // other things being equal.
   list<pg_shard_t> shards;
   for (map<pg_shard_t, ScrubMap *>::const_iterator j = maps.begin();
@@ -778,7 +778,7 @@ map<pg_shard_t, ScrubMap *>::const_iterator
       continue;
     shards.push_back(j->first);
   }
-  shards.push_back(get_parent()->whoami_shard());
+  shards.push_front(get_parent()->whoami_shard());
 
   map<pg_shard_t, ScrubMap *>::const_iterator auth = maps.end();
   for (auto &l : shards) {
@@ -830,6 +830,12 @@ map<pg_shard_t, ScrubMap *>::const_iterator
         try {
 	  bufferlist::iterator bliter = ss_bl.begin();
 	  ::decode(ss, bliter);
+	  if (first_ss_bl.length() == 0) {
+	    first_ss_bl.append(ss_bl);
+	  } else if (!object_error.has_snapset_inconsistency() && !ss_bl.contents_equal(first_ss_bl)) {
+	    object_error.set_snapset_inconsistency();
+	    error_string += " snapset_inconsistency";
+	  }
         } catch (...) {
 	  // invalid snapset, probably corrupt
 	  shard_info.set_ss_attr_corrupted();
@@ -859,9 +865,9 @@ map<pg_shard_t, ScrubMap *>::const_iterator
     // This is automatically corrected in PG::_repair_oinfo_oid()
     assert(oi.soid == obj);
 
-    if (first_bl.length() == 0) {
-      first_bl.append(bl);
-    } else if (!object_error.has_object_info_inconsistency() && !bl.contents_equal(first_bl)) {
+    if (first_oi_bl.length() == 0) {
+      first_oi_bl.append(bl);
+    } else if (!object_error.has_object_info_inconsistency() && !bl.contents_equal(first_oi_bl)) {
       object_error.set_object_info_inconsistency();
       error_string += " object_info_inconsistency";
     }
@@ -988,6 +994,7 @@ void PGBackend::be_compare_scrubmaps(
 	  // Track possible shard to use as authoritative, if needed
 	  // There are errors, without identifying the shard
 	  object_errors.insert(j->first);
+	  errorstream << pgid << " : soid " << *k << " " << ss.str() << "\n";
 	} else {
 	  // XXX: The auth shard might get here that we don't know
 	  // that it has the "correct" data.

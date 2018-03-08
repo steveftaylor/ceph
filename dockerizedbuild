@@ -127,7 +127,7 @@ then
     set -x
     export LDFLAGS="-Wl,-V"
 fi
-sudo apt-get install -y libjemalloc1 libjemalloc-dev
+sudo apt-get install -y --force-yes libjemalloc1 libjemalloc-dev wget
 ./make-debs.sh
 rm -rf release
 cp -af /tmp/release release

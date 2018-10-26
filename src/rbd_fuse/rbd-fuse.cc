@@ -20,6 +20,7 @@
 #include <limits.h>
 #include <unordered_set>
 #include <map>
+#include <atomic>
 
 #if defined(__FreeBSD__)
 #include <sys/param.h>
@@ -37,12 +38,11 @@ uint64_t num_images = 0;            // Number of images to mount (-n)
 uint64_t max_writes_in_flight = 0;  // Maximum number of writes in flight (-w)
 rados_t cluster;
 rados_ioctx_t ioctx;
-int next_descriptor = 0;
+std::atomic_int next_descriptor(0);
 
 // Mutexes currently need to be re-entrant (std::recursive_mutex instead of std::mutex)
 std::recursive_mutex readdir_lock;           // Locks access to the FUSE directory
 std::recursive_mutex in_flight_writes_lock;  // Locks access to the in-flight write recordset
-std::recursive_mutex file_descriptor_lock;   // Serialize increments to the next file descriptor
 std::recursive_mutex image_data_lock;        // Locks access to the image data map
 std::recursive_mutex open_images_lock;       // Locks access to the open image map
 
@@ -77,7 +77,7 @@ struct rbd_image_data {
     struct rbd_stat rbd_stat;  // Image/file information
     uint64_t sector_size;
     uint64_t starting_sector;
-    uint64_t num_sectors;
+    std::atomic<uint64_t> num_sectors;
 };
 typedef std::map<std::string, rbd_image_data> rbd_image_data_set;
 rbd_image_data_set rbd_image_data;     // Unpacked+filtered RBD list
@@ -137,9 +137,7 @@ void simple_err(const char *msg, int err);
 int
 get_next_file_descriptor()
 {
-    file_descriptor_lock.lock();
     int file_descriptor = next_descriptor++;
-    file_descriptor_lock.unlock();
     
     return file_descriptor;
 }
@@ -646,7 +644,7 @@ static int rbdfs_read(const char *path, char *buf, size_t size,
     struct rbd_image_data *image_data = get_rbd_image_data(rbd_name);
     
     if (offset + size > image_data->num_sectors * imagesectorsize)
-        return -EINVAL;
+        return -EOF;
     
     size_t numread;
 

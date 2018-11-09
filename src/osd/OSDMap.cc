@@ -4076,14 +4076,22 @@ int OSDMap::calc_pg_upmaps(
     }
     end_deviation = total_deviation;
 
-    // build underfull, sorted from least-full to most-average
+    // build underfull, sorted from least-full to most-average, match the size of overfull
     vector<int> underfull;
     for (auto i = deviation_osd.begin();
 	 i != deviation_osd.end();
 	 ++i) {
-      if (i->first >= -.999)
+      if ((i->first >= -.999) && (underfull.size() >= overfull.size()))
 	break;
       underfull.push_back(i->second);
+    }
+
+    // Fill overfull to match the size of underfull if necessary
+    for (auto i = deviation_osd.rbegin();
+        (i != deviation_osd.rend()) && (overfull.size() < underfull.size());
+        ++i) {
+      if (overfull.find(i->second) == overfull.end())
+        overfull.insert(i->second);
     }
     ldout(cct, 10) << " total_deviation " << total_deviation
 		   << " overfull " << overfull

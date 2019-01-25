@@ -7467,7 +7467,9 @@ void ReplicatedPG::eval_repop(RepGather *repop)
     if (repop_queue.front() != repop) {
       dout(0) << " removing " << *repop << dendl;
       dout(0) << "   q front is " << *repop_queue.front() << dendl; 
-      assert(repop_queue.front() == repop);
+      //assert(repop_queue.front() == repop);
+      dout(0) << "Ignoring missing snap and skipping trim!" << dendl;
+      osd->clog->error() << " Snap " << *repop << " not found, ignoring trim\n";
     }
     repop_queue.pop_front();
     remove_repop(repop);

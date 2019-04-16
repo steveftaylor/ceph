@@ -3698,7 +3698,7 @@ int PrimaryLogPG::trim_object(
   if (!obc || !obc->ssc || !obc->ssc->exists) {
     osd->clog->error() << __func__ << ": Can not trim " << coid
       << " repair needed " << (obc ? "(no obc->ssc or !exists)" : "(no obc)");
-    return -ENOENT;
+    return obc ? -ENOENT : 0;
   }
 
   hobject_t snapoid(

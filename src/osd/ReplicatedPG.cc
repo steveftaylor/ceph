@@ -7471,8 +7471,10 @@ void ReplicatedPG::eval_repop(RepGather *repop)
       dout(0) << "Ignoring missing snap and skipping trim!" << dendl;
       osd->clog->error() << " Snap " << *repop << " not found, ignoring trim\n";
     }
-    repop_queue.pop_front();
-    remove_repop(repop);
+    else {
+      repop_queue.pop_front();
+      remove_repop(repop);
+    }
   }
 }
 
@@ -8896,8 +8898,6 @@ void ReplicatedPG::on_change(ObjectStore::Transaction *t)
   // requeues waiting_for_active
   scrub_clear_state();
 
-  context_registry_on_change();
-
   cancel_copy_ops(is_primary());
   cancel_flush_ops(is_primary());
   cancel_proxy_read_ops(is_primary());
@@ -8954,6 +8954,10 @@ void ReplicatedPG::on_change(ObjectStore::Transaction *t)
   // this will requeue ops we were working on but didn't finish, and
   // any dups
   apply_and_flush_repops(is_primary());
+
+  // do this *after* apply_and_flush_repops so that we catch any newly
+  // registered watches.
+  context_registry_on_change();
 
   pgbackend->on_change_cleanup(t);
   pgbackend->on_change();

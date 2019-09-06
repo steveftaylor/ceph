@@ -2652,6 +2652,7 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
   ObjectContextRef obc = get_object_context(coid, false, NULL);
   if (!obc) {
     derr << __func__ << "could not find coid " << coid << dendl;
+    return (ReplicatedPG::RepGather *)-1;
     assert(0);
   }
   assert(obc->ssc);
@@ -11820,6 +11821,11 @@ boost::statechart::result ReplicatedPG::TrimmingObjects::react(const SnapTrim&)
 
     dout(10) << "TrimmingObjects react trimming " << pos << dendl;
     RepGather *repop = pg->trim_object(pos);
+    if ((long)repop == -1) {
+      derr << __func__ << " could not find the object to trim "
+           << pos << dendl;
+      return discard_event();
+    }
     if (!repop) {
       dout(10) << __func__ << " could not get write lock on obj "
 	       << pos << dendl;

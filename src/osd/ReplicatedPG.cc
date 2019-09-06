@@ -2652,6 +2652,7 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
   ObjectContextRef obc = get_object_context(coid, false, NULL);
   if (!obc) {
     derr << __func__ << "could not find coid " << coid << dendl;
+    return NULL;
     assert(0);
   }
   assert(obc->ssc);

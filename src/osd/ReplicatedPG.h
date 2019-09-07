@@ -1407,7 +1407,7 @@ public:
     ThreadPool::TPHandle &handle);
   void do_backfill(OpRequestRef op);
 
-  RepGather *trim_object(const hobject_t &coid);
+  int trim_object(const hobject_t &coid, RepGather** repgather);
   void snap_trimmer();
   int do_osd_ops(OpContext *ctx, vector<OSDOp>& ops);
 

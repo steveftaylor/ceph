@@ -2645,21 +2645,20 @@ void ReplicatedPG::do_backfill(OpRequestRef op)
   }
 }
 
-ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
+int ReplicatedPG::trim_object(const hobject_t &coid, ReplicatedPG::RepGather** repgather)
 {
   // load clone info
   bufferlist bl;
   ObjectContextRef obc = get_object_context(coid, false, NULL);
   if (!obc) {
     derr << __func__ << "could not find coid " << coid << dendl;
-    return (ReplicatedPG::RepGather *)-1;
-    assert(0);
+    return -ENOENT;
   }
   assert(obc->ssc);
 
   if (!obc->get_snaptrimmer_write()) {
     dout(10) << __func__ << ": Unable to get a wlock on " << coid << dendl;
-    return NULL;
+    return -EWOULDBLOCK;
   }
 
   hobject_t snapoid(
@@ -2676,14 +2675,14 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
     obc->put_write(&to_wake, &requeue_recovery, &requeue_snaptrimmer);
     assert(to_wake.empty());
     assert(!requeue_recovery);
-    return NULL;
+    return -EWOULDBLOCK;
   }
 
   object_info_t &coi = obc->obs.oi;
   set<snapid_t> old_snaps(coi.snaps.begin(), coi.snaps.end());
   if (old_snaps.empty()) {
     osd->clog->error() << __func__ << " No object info snaps for " << coid << "\n";
-    return NULL;
+    return -ENOENT;
   }
 
   SnapSet& snapset = obc->ssc->snapset;
@@ -2692,7 +2691,7 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
 	   << " old snapset " << snapset << dendl;
   if (snapset.seq == 0) {
     osd->clog->error() << __func__ << " No snapset.seq for " << coid << "\n";
-    return NULL;
+    return -ENOENT;
   }
 
   RepGather *repop = simple_repop_create(obc);
@@ -2724,7 +2723,7 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
 	break;
     if (p == snapset.clones.end()) {
       osd->clog->error() << __func__ << " Snap " << coid.snap << " not in clones" << "\n";
-      return NULL;
+      return -ENOENT;
     }
     object_stat_sum_t delta;
     delta.num_bytes -= snapset.get_clone_bytes(last);
@@ -2891,7 +2890,8 @@ ReplicatedPG::RepGather *ReplicatedPG::trim_object(const hobject_t &coid)
     }
   }
 
-  return repop;
+  *repgather = repop;
+  return 0;
 }
 
 void ReplicatedPG::snap_trimmer()
@@ -11820,13 +11820,14 @@ boost::statechart::result ReplicatedPG::TrimmingObjects::react(const SnapTrim&)
     }
 
     dout(10) << "TrimmingObjects react trimming " << pos << dendl;
-    RepGather *repop = pg->trim_object(pos);
-    if ((long)repop == -1) {
-      derr << __func__ << " could not find the object to trim "
-           << pos << dendl;
-      return discard_event();
+    RepGather *repop = NULL;
+    r = pg->trim_object(pos, &repop);
+    if (r == -ENOENT) {
+      derr << __func__ << "TrimmingObjects cannot find snap, dropping from snaptrimq: " << pos << dendl;
+      post_event(SnapTrim());
+      return transit< WaitingOnReplicas >();
     }
-    if (!repop) {
+    if (r == -EWOULDBLOCK) {
       dout(10) << __func__ << " could not get write lock on obj "
 	       << pos << dendl;
       pos = old_pos;
